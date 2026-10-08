@@ -72,11 +72,10 @@ export async function updatePizzaPrices(
   sizes: Record<PizzaSize, number>,
 ): Promise<void> {
   for (const size of ["S", "M", "L"] as const) {
-    await run("UPDATE pizzas SET price = ? WHERE pizza_type_id = ? AND size = ?", [
-      sizes[size].toFixed(2),
-      id,
-      size,
-    ]);
+    await run(
+      "UPDATE pizzas SET price = ? WHERE pizza_type_id = ? AND size = ?",
+      [sizes[size].toFixed(2), id, size],
+    );
   }
 }
 
@@ -127,9 +126,10 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
     date: string;
     time: string;
     status: OrderStatus;
-  }>("SELECT order_id AS id, date, time, status FROM orders WHERE order_id = ?", [
-    id,
-  ]);
+  }>(
+    "SELECT order_id AS id, date, time, status FROM orders WHERE order_id = ?",
+    [id],
+  );
   if (!order) return null;
   const lines = await all<OrderLine>(
     `SELECT t.pizza_type_id AS pizzaId, t.name, p.size, d.quantity,
@@ -219,7 +219,13 @@ export async function getStatusCounts(): Promise<Record<OrderStatus, number>> {
     `SELECT status, COUNT(*) AS n FROM orders
      WHERE date = (SELECT MAX(date) FROM orders) GROUP BY status`,
   );
-  const counts = { pending: 0, preparing: 0, ready: 0, delivered: 0, cancelled: 0 };
+  const counts = {
+    pending: 0,
+    preparing: 0,
+    ready: 0,
+    delivered: 0,
+    cancelled: 0,
+  };
   for (const r of rows) counts[r.status] = r.n;
   return counts;
 }
@@ -268,7 +274,9 @@ export async function getDailySales(): Promise<DailySale[]> {
 }
 
 /** Revenue per day for the last 30 days in the data. */
-export async function getSalesTrend(): Promise<{ date: string; revenue: number; orders: number }[]> {
+export async function getSalesTrend(): Promise<
+  { date: string; revenue: number; orders: number }[]
+> {
   await requirePermission("admin:view");
   await simulateLatency("read");
   return all(
@@ -286,12 +294,18 @@ export async function getSalesTrend(): Promise<{ date: string; revenue: number; 
 export async function getDayOrderCount(date: string): Promise<number> {
   await requirePermission("admin:view");
   await simulateLatency("read");
-  const row = await get<{ n: number }>("SELECT COUNT(*) AS n FROM orders WHERE date = ?", [date]);
+  const row = await get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM orders WHERE date = ?",
+    [date],
+  );
   return row?.n ?? 0;
 }
 
 /** How many times this pizza (type) was ordered on that day. */
-export async function getPizzaSoldOnDay(pizzaId: string, date: string): Promise<number> {
+export async function getPizzaSoldOnDay(
+  pizzaId: string,
+  date: string,
+): Promise<number> {
   await requirePermission("admin:view");
   await simulateLatency("read");
   const row = await get<{ n: number }>(
@@ -303,6 +317,43 @@ export async function getPizzaSoldOnDay(pizzaId: string, date: string): Promise<
     [pizzaId, date],
   );
   return row?.n ?? 0;
+}
+
+export async function getPizzasSoldOnDay(
+  pizzaIds: string[],
+  date: string,
+): Promise<Record<string, number>> {
+  await requirePermission("admin:view");
+  await simulateLatency("read");
+
+  const uniquePizzaIds = [...new Set(pizzaIds)];
+  if (uniquePizzaIds.length === 0) return {};
+
+  const placeholders = uniquePizzaIds.map(() => "?").join(", ");
+
+  const rows = await all<{ pizzaId: string; sold: number }>(
+    `SELECT p.pizza_type_id AS pizzaId,
+            COALESCE(SUM(d.quantity), 0) AS sold
+     FROM pizzas p
+     LEFT JOIN order_details d ON d.pizza_id = p.pizza_id
+     LEFT JOIN orders o ON o.order_id = d.order_id
+     WHERE p.pizza_type_id IN (${placeholders})
+       AND (o.date = ? OR o.date IS NULL)
+     GROUP BY p.pizza_type_id`,
+    [...uniquePizzaIds, date],
+  );
+
+  const result: Record<string, number> = {};
+
+  for (const pizzaId of uniquePizzaIds) {
+    result[pizzaId] = 0;
+  }
+
+  for (const row of rows) {
+    result[row.pizzaId] = row.sold;
+  }
+
+  return result;
 }
 
 /** Live counter for the sidebar: orders still waiting on the latest day. */
