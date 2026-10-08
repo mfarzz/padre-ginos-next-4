@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  reactCompiler: true,
   experimental: {
     // Day 3: unauthorized() → 401 page, forbidden() → 403 page
     authInterrupts: true,
