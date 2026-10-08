@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo, useMemo, useDeferredValue } from "react";
 import type { DailySale } from "@/lib/admin-data";
 import { type WeeklyRow as Row, withWeekAverage } from "@/lib/sales";
 import { useLive } from "./LiveProvider";
@@ -9,14 +9,23 @@ const MAX_ROWS = 1000;
 
 export default function SalesExplorer({ sales }: { sales: DailySale[] }) {
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const isStale = query !== deferredQuery;
 
-  const q = query.trim().toLowerCase();
-  const matches = sales.filter(
-    (s) => s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q),
+  const allRows = useMemo(() => withWeekAverage(sales), [sales]);
+
+  const q = deferredQuery.trim().toLowerCase();
+  const rows = useMemo(
+    () =>
+      allRows.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.category.toLowerCase().includes(q),
+      ),
+    [allRows, q],
   );
-  const rows = withWeekAverage(matches);
-  const totalRevenue = matches.reduce((sum, s) => sum + s.revenue, 0);
-  const totalQuantity = matches.reduce((sum, s) => sum + s.quantity, 0);
+  const totalRevenue = rows.reduce((sum, s) => sum + s.revenue, 0);
+  const totalQuantity = rows.reduce((sum, s) => sum + s.quantity, 0);
 
   return (
     <div className="mt-6">
@@ -27,18 +36,32 @@ export default function SalesExplorer({ sales }: { sales: DailySale[] }) {
         aria-label="Cari pizza atau kategori"
         className="w-full max-w-md rounded-lg border border-black/10 bg-white px-4 py-2"
       />
-      <Summary count={matches.length} quantity={totalQuantity} revenue={totalRevenue} />
-      <SalesTable rows={rows.slice(0, MAX_ROWS)} />
+      <Summary
+        count={rows.length}
+        quantity={totalQuantity}
+        revenue={totalRevenue}
+      />
+      <div style={{ opacity: isStale ? 0.6 : 1, transition: "opacity 0.3s" }}>
+        <SalesTable rows={rows} />
+      </div>
     </div>
   );
 }
 
-function Summary({ count, quantity, revenue }: { count: number; quantity: number; revenue: number }) {
+function Summary({
+  count,
+  quantity,
+  revenue,
+}: {
+  count: number;
+  quantity: number;
+  revenue: number;
+}) {
   const { formatPrice } = useLive();
   return (
     <p className="mt-3 text-sm text-ink/70" data-testid="sales-summary">
-      {count.toLocaleString("en-US")} baris · {quantity.toLocaleString("en-US")} pizza ·{" "}
-      {formatPrice(revenue)}
+      {count.toLocaleString("en-US")} baris · {quantity.toLocaleString("en-US")}{" "}
+      pizza · {formatPrice(revenue)}
       {count > MAX_ROWS && ` · menampilkan ${MAX_ROWS} teratas`}
     </p>
   );
